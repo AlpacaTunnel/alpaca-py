@@ -49,8 +49,8 @@ class PacketMarker:
         self.mark_2 = [False, ] * self.limit
 
     def is_dup(self, timestamp: int, sequence: int) -> bool:
-        if sequence > self.limit:
-            return False
+        if sequence >= self.limit:
+            return True
 
         time_diff = timestamp - self.latest
 
