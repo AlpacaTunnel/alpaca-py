@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
 
-"""
-  A simple user-space peer-to-peer UDP-based tunnel.
-
-  sudo ip tuntap add dev tun9 mode tun
-  sudo ip link set tun9 up
-  sudo ip addr add 10.0.1.2/24 dev tun9
-  sudo ip link set tun9 mtu 1408
-
-  ./udptun.py tun9 8964 172.16.89.64 1984
-
-"""
-
 import logging
 import time
 import socket
 import argparse
 import traceback
-from multiprocessing import Process
 from multiprocessing import Process as Worker
 # from threading import Thread as Worker
 
@@ -30,6 +17,7 @@ from alpaca.vpn_out import VPNOut
 
 ETH_MTU = 1500
 LOGFORMAT = '[%(asctime)s %(levelname)s %(filename)s:%(lineno)d %(funcName)s()] - %(message)s'
+logger = logging.getLogger(__name__)
 
 
 def worker_send(sock, tun, conf, peers):
@@ -83,8 +71,8 @@ def main():
     logging.basicConfig(format=LOGFORMAT, level=conf.log_level)
     peers = PeerPool(conf.secret_file).load()
 
-    print(conf)
-    print(peers)
+    logger.debug(conf)
+    logger.debug(peers)
 
     tun = Tunnel(conf.name, conf.mtu, f'{conf.net}.{conf.id}')
     tun_fd = tun.delete().add().open()

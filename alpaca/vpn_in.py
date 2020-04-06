@@ -45,6 +45,15 @@ class VPNIn:
         if h.magic != self.MAGIC:
             return None
 
+        if not self.peers.pool.get(h.src_id) or not self.peers.pool.get(h.dst_id):
+            logger.debug(f'Invalid srd_id or dst_id: {h.src_id} -> {h.dst_id}')
+            return None
+
+        self.peers.pool[h.src_id].init_pkt_marker()
+        if self.peers.pool[h.src_id].pkt_marker.is_dup(h.timestamp, h.sequence):
+            logger.debug('Packet is duplicated, drop it')
+            return None
+
         self.peers.pool[h.src_id].add_addr(addr)
 
         bigger_id = max(h.src_id, h.dst_id)
