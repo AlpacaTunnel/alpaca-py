@@ -1,19 +1,22 @@
 """
 Load ID and PSK from secret.txt.
 """
-from typing import Tuple, List, Iterable, Dict
+from typing import Tuple, List, Dict
 import logging
 import ctypes
 from multiprocessing.sharedctypes import Array
 
-from .common import truncate_key, ip_ntop, ip_pton
+from .common import truncate_key, ip_ntop, ip_pton, id_pton
 
 MAX_ID = 65535
 MAX_ADDR = 4  # each peer stores 4 addresses
 
+logger = logging.getLogger(__name__)
+
 
 class PeerAddr(ctypes.Structure):
     _fields_ = [
+        ('static', ctypes.c_bool),
         ('version', ctypes.c_int8),
         ('ip', ctypes.c_uint32),
         ('port', ctypes.c_uint16),
@@ -113,7 +116,7 @@ class Peer:
     ):
         self.id = id
         self.psk = psk
-        self.addr_array = addr_array
+        self.addr_array: List[PeerAddr] = addr_array
         self._offset = self.id * MAX_ADDR  # offset to the shared addr_array
         self.pkt_marker: PacketMarker = None
 
@@ -125,6 +128,8 @@ class Peer:
             self.pkt_marker = PacketMarker()
 
     def add_addr(self, addr: PeerAddr):
+        if addr.port == 0:
+            logger.error('Got wrong address with port 0.')
         # skip if already stored
         for index in range(self._offset, self._offset + MAX_ADDR):
             if self.addr_array[index] == addr:
@@ -136,9 +141,16 @@ class Peer:
                 self.addr_array[index] = addr
                 return
 
-    def get_addrs(self) -> Iterable[PeerAddr]:
+    def get_addrs(self, static=False) -> List[PeerAddr]:
+        """
+        If static, only return static addrs.
+        Else return all.
+        """
         my_array = self.addr_array[self._offset: self._offset + MAX_ADDR]
-        return filter(lambda addr: addr.port, my_array)
+        if static:
+            return list(filter(lambda addr: addr.port and addr.static, my_array))
+        else:
+            return list(filter(lambda addr: addr.port, my_array))
 
     def __repr__(self):
         return f'{self.id} {self.psk.hex()} {list(self.get_addrs())}'
@@ -178,12 +190,18 @@ class PeerPool:
         if not id_str or not psk:
             return
 
-        id = int(id_str.split('.')[0]) * 256 + int(id_str.split('.')[1])
+        id = id_pton(id_str)
 
         self.pool[id] = Peer(id, truncate_key(psk), self.addr_array)
 
         if ip and port:
-            addr = PeerAddr(4, ip_pton(ip), int(port))
+            addr = PeerAddr(
+                static=True,
+                version=4,
+                ip=ip_pton(ip),
+                port=int(port),
+                last_active=0,
+            )
             self.pool[id].add_addr(addr)
 
     def load(self) -> 'PeerPool':

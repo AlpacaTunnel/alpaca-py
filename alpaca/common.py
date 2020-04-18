@@ -25,6 +25,13 @@ def ip_ntop(ip: int) -> str:
     return socket.inet_ntop(socket.AF_INET, ip_bytes)
 
 
+def id_pton(id_str: str) -> int:
+    """
+    given 16.1, return 257
+    """
+    return int(id_str.split('.')[0]) * 256 + int(id_str.split('.')[1])
+
+
 def exec_cmd(cmd: str):
     bash_cmd = ['bash', '-c', cmd]
     child = subprocess.Popen(bash_cmd,

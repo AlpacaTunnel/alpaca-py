@@ -4,6 +4,8 @@ Parse the config.json
 import os
 import json
 
+from .common import id_pton
+
 DEFAULT_MTU = 1408
 
 def _get_conf_dir(path: str = None):
@@ -43,6 +45,7 @@ class Config:
         self.gateway : str  = None
         self.port    : str  = None
         self.mtu     : str  = None
+        self.forwarders   : list  = None
         self.secret_file  : str  = None
         self.log_level    : str  = None
 
@@ -50,7 +53,8 @@ class Config:
 
     def __repr__(self):
         result = '\n'
-        for field in ('name', 'mode', 'group', 'net', 'id', 'gateway', 'port', 'mtu', 'secret_file'):
+        for field in ('name', 'mode', 'group', 'net', 'id', 'gateway',
+                      'port', 'mtu', 'forwarders', 'secret_file'):
             value = getattr(self, field)
             result += f'{field.ljust(12)}: {value}\n'
         return result
@@ -68,6 +72,9 @@ class Config:
         self.gateway = conf.get('gateway')
         self.port = conf.get('port', 0)
         self.mtu = conf.get('mtu', DEFAULT_MTU)
+
+        if conf.get('forwarders'):
+            self.forwarders = [id_pton(id_str) for id_str in conf.get('forwarders')]
 
         self.secret_file = os.path.join(
             _get_conf_dir(self.path),

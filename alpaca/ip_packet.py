@@ -43,7 +43,6 @@ class IPHeader:
             ('length'     , self.length),
             ('frag_off'   , self.frag_off),
             ('protocol'   , self._get_ipproto(self.protocol)),
-            ('checksum'   , self.checksum),
             ('source'     , self._get_ipdot(self.src_ip)),
             ('destination', self._get_ipdot(self.dst_ip)),
         ])
@@ -55,7 +54,10 @@ class IPHeader:
     @staticmethod
     def _get_ipproto(number: int) -> str:
         table = {num: name[8:] for (name, num) in vars(socket).items() if name.startswith("IPPROTO_")}
-        return table[number]
+        if number in table:
+            return table[number]
+        else:
+            return 'unknown'
 
     @staticmethod
     def _get_ipdot(ip: int) -> str:
@@ -132,7 +134,7 @@ class UDPHeader(EmptyL4Header):
         self.checksum : int = None
 
     def __repr__(self):
-        return f'src_port: {self.src_port}, dst_port: {self.dst_port}, checksum: {self.checksum}'
+        return f'src_port: {self.src_port}, dst_port: {self.dst_port}'
 
     def from_network(self, data: bytes) -> 'UDPHeader':
         assert len(data) == self.LENGTH
@@ -156,7 +158,7 @@ class TCPHeader(EmptyL4Header):
         self.urgent   : int = None
 
     def __repr__(self):
-        return f'src_port: {self.src_port}, dst_port: {self.dst_port}, checksum: {self.checksum}'
+        return f'src_port: {self.src_port}, dst_port: {self.dst_port}'
 
     def from_network(self, data: bytes) -> 'TCPHeader':
         assert len(data) == self.LENGTH
@@ -174,6 +176,12 @@ class IPPacket:
         self._header_option : bytes = None
         self.l4_header      : EmptyL4Header = None
         self._l4_body       : bytes = None  # data after tcp/udp header
+
+    def __repr__(self):
+        if self.header.version == 4:
+            return f'{self.header}\n{self.l4_header}\n'
+        else:
+            return 'IPv6 packet...'
 
     def from_network(self, data: bytes) -> 'IPPacket':
         self.packet = data

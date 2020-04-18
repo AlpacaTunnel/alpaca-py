@@ -12,51 +12,58 @@ from alpaca.config import Config
 from alpaca.peer import PeerPool, PeerAddr
 from alpaca.common import ip_pton, ip_ntop
 from alpaca.tunnel import Tunnel
-from alpaca.vpn_in import VPNIn
-from alpaca.vpn_out import VPNOut
+from alpaca.vpn import VPN
+from alpaca.pkt_in import PktIn
+from alpaca.pkt_out import PktOut
 
 ETH_MTU = 1500
 LOGFORMAT = '[%(asctime)s %(levelname)s %(filename)s:%(lineno)d %(funcName)s()] - %(message)s'
 logger = logging.getLogger(__name__)
 
 
-def worker_send(sock, tun, conf, peers):
-    ctx_out = VPNOut(conf, peers)
+def worker_send(sock, tun, vpn):
     while True:
         try:
             body = tun.read(ETH_MTU)
-            addrs, packet = ctx_out.get_outter_packet(body)
-            if packet:
-                for addr in addrs:
-                    sock.sendto(packet, (ip_ntop(addr.ip), addr.port))
-        except Exception as e:
+            pkt = PktOut(vpn, body)
+            if not pkt.valid:
+                continue
+            for addr in pkt.dst_addrs:
+                sock.sendto(pkt.outter_pkt, (ip_ntop(addr.ip), addr.port))
+        except Exception as exc:
             traceback.print_exc()
-            print('Got Exception in worker_send: %s' % e)
+            print(f'Got Exception in worker_send: {exc.__class__.__name__}: {exc}')
 
 
-def worker_recv(sock, tun, conf, peers):
-    ctx_in = VPNIn(conf, peers)
+def worker_recv(sock, tun, vpn):
     while True:
         try:
             packet, ip_port = sock.recvfrom(ETH_MTU)
-            addr = PeerAddr(4, ip_pton(ip_port[0]), int(ip_port[1]))
-            body = ctx_in.get_inner_packet(packet, addr)
-            if body:
-                tun.write(body)
-        except Exception as e:
+            addr = PeerAddr(
+                static=False,
+                version=4,
+                ip=ip_pton(ip_port[0]),
+                port=int(ip_port[1]),
+            )
+            pkt = PktIn(vpn, packet, addr)
+            if not pkt.valid:
+                continue
+            tun.write(pkt.body)
+        except Exception as exc:
             traceback.print_exc()
-            print('Got Exception in worker_recv: %s' % e)
+            print(f'Got Exception in worker_recv: {exc.__class__.__name__}: {exc}')
 
 
 def start_server(tun, conf, peers):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0', conf.port))
 
-    # Worker(target=worker_send, args = (sock, tun, conf, peers)).start()
-    Worker(target=worker_recv, args = (sock, tun, conf, peers)).start()
+    vpn = VPN(conf, peers)
+    # Worker(target=worker_send, args = (sock, tun, vpn)).start()
+    Worker(target=worker_recv, args = (sock, tun, vpn)).start()
 
-    worker_send(sock, tun, conf, peers)
-    # worker_recv(sock, tun, conf, peers)
+    worker_send(sock, tun, vpn)
+    # worker_recv(sock, tun, vpn)
 
     while True:
         time.sleep(1)
