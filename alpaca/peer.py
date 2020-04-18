@@ -4,6 +4,7 @@ Load ID and PSK from secret.txt.
 from typing import Tuple, List, Dict
 import logging
 import ctypes
+import time
 from multiprocessing.sharedctypes import Array
 
 from .common import truncate_key, ip_ntop, ip_pton, id_pton
@@ -20,7 +21,7 @@ class PeerAddr(ctypes.Structure):
         ('version', ctypes.c_int8),
         ('ip', ctypes.c_uint32),
         ('port', ctypes.c_uint16),
-        ('last_active', ctypes.c_uint32),
+        ('last_active', ctypes.c_uint64),
     ]
 
     def __eq__(self, other) -> bool:
@@ -36,7 +37,7 @@ class PeerAddr(ctypes.Structure):
         return f"{ip_ntop(self.ip)}:{self.port}"
 
 
-class PacketMarker:
+class PktFilter:
     """
     For each packet with a specified timestamp and sequence, mark True.
     If the same timestamp and sequence is received again, drop it.
@@ -118,39 +119,45 @@ class Peer:
         self.psk = psk
         self.addr_array: List[PeerAddr] = addr_array
         self._offset = self.id * MAX_ADDR  # offset to the shared addr_array
-        self.pkt_marker: PacketMarker = None
+        self.pkt_filter: PktFilter = None
 
-    def init_pkt_marker(self):
+    def init_pkt_filter(self):
         """
         Only init it in receive subprocess.
         """
-        if self.pkt_marker is None:
-            self.pkt_marker = PacketMarker()
+        if self.pkt_filter is None:
+            self.pkt_filter = PktFilter()
 
     def add_addr(self, addr: PeerAddr):
         if addr.port == 0:
             logger.error('Got wrong address with port 0.')
-        # skip if already stored
+        # update last_active timestamp if already stored
         for index in range(self._offset, self._offset + MAX_ADDR):
             if self.addr_array[index] == addr:
+                self.addr_array[index].last_active = int(time.time())
                 return
 
         # store in first empty pointer
         for index in range(self._offset, self._offset + MAX_ADDR):
             if self.addr_array[index].port == 0:
                 self.addr_array[index] = addr
+                self.addr_array[index].last_active = int(time.time())
                 return
 
     def get_addrs(self, static=False) -> List[PeerAddr]:
         """
         If static, only return static addrs.
-        Else return all.
+        Else return all static and active dynamic (last_active within 60s)
         """
         my_array = self.addr_array[self._offset: self._offset + MAX_ADDR]
         if static:
             return list(filter(lambda addr: addr.port and addr.static, my_array))
-        else:
-            return list(filter(lambda addr: addr.port, my_array))
+
+        # clear inactive
+        for addr in filter(lambda addr: addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60, my_array):
+            addr.port = 0
+
+        return list(filter(lambda addr: addr.port, my_array))
 
     def __repr__(self):
         return f'{self.id} {self.psk.hex()} {list(self.get_addrs())}'

@@ -1,12 +1,13 @@
 """
 VPN Context.
 """
+from typing import List
 import time
 from Crypto.Cipher import AES
 
 from .common import truncate_key, id_pton
 from .config import Config
-from .peer import PeerPool
+from .peer import PeerPool, PeerAddr
 
 
 class VPN:
@@ -37,3 +38,17 @@ class VPN:
         else:
             self.TIMESTAMP = now
             self.SEQUENCE = 0
+
+    def get_dst_addrs(self, src_id: int, dst_id: int) -> List[PeerAddr]:
+        if not self.config.forwarders:
+            return self.peers.pool[dst_id].get_addrs()
+
+        # from server to client
+        if src_id < dst_id:
+            return self.peers.pool[dst_id].get_addrs()
+
+        dst_addrs = []
+        for forwarder_id in self.config.forwarders:
+            dst_addrs += self.peers.pool[forwarder_id].get_addrs(static=True)
+
+        return dst_addrs

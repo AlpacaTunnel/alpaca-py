@@ -38,12 +38,11 @@ class PktOut:
         cipher = AES.new(psk, AES.MODE_CBC, header.get_iv())
         return cipher.encrypt(self.body + padding)
 
-    @staticmethod
-    def _encrypt_header(header: Header, psk: bytes):
+    def _get_icv(self, psk: bytes):
         cipher = AES.new(psk, AES.MODE_ECB)
-        return cipher.encrypt(header.to_network())
+        return cipher.encrypt(self.header.to_network())
 
-    def _fill_header(self) -> bool:
+    def _fill_header(self):
         body = self.body
         ip = IPPacket().from_network(body)
         logger.debug(ip)
@@ -96,14 +95,12 @@ class PktOut:
             return
 
         h = self.header
-
-        header_plain = h.to_network()
-        header_cipher = self.vpn.group_cipher.encrypt(header_plain)
+        header_cipher = self.vpn.group_cipher.encrypt(h.to_network())
 
         bigger_id = max(h.src_id, h.dst_id)
         psk = self.vpn.peers.pool[bigger_id].psk
 
-        icv = self._encrypt_header(h, psk)
+        icv = self._get_icv(psk)
         body_cipher = self._encrypt_body(h, psk)
 
         self.outter_pkt = b''.join([header_cipher, icv, body_cipher])
@@ -112,12 +109,5 @@ class PktOut:
         if not self.valid:
             return
 
-        dst_addrs = []
-        if self.header.dst_id < self.header.src_id and self.vpn.config.forwarders:
-            for forwarder_id in self.vpn.config.forwarders:
-                dst_addrs += self.vpn.peers.pool[forwarder_id].get_addrs(static=True)
-        else:
-            dst_addrs += self.vpn.peers.pool[self.header.dst_id].get_addrs()
-
-        self.dst_addrs = dst_addrs
+        self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
         logger.debug(self.dst_addrs)

@@ -48,7 +48,14 @@ def worker_recv(sock, tun, vpn):
             pkt = PktIn(vpn, packet, addr)
             if not pkt.valid:
                 continue
-            tun.write(pkt.body)
+
+            if pkt.action == pkt.ACTION_WRITE:
+                tun.write(pkt.body)
+
+            if pkt.action == pkt.ACTION_FORWARD:
+                for addr in pkt.dst_addrs:
+                    sock.sendto(pkt.new_outter_pkt, (ip_ntop(addr.ip), addr.port))
+
         except Exception as exc:
             traceback.print_exc()
             print(f'Got Exception in worker_recv: {exc.__class__.__name__}: {exc}')

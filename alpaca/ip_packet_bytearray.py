@@ -62,6 +62,12 @@ class IPPacket:
         self.header     : IPHeader = None
         self.l4_header  : L4Header = None
 
+    def __repr__(self):
+        if self.header.version == 4:
+            return f'{self.header}\n{self.l4_header}\n'
+        else:
+            return 'IPv6 packet...'
+
     def from_network(self, data: bytes) -> 'IPPacket':
         self.packet = bytearray(data)
         self.header = IPHeader().from_network(data[0: IPHeader.LENGTH])

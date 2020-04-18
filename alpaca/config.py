@@ -1,6 +1,7 @@
 """
 Parse the config.json
 """
+from typing import List
 import os
 import json
 
@@ -45,7 +46,7 @@ class Config:
         self.gateway : str  = None
         self.port    : str  = None
         self.mtu     : str  = None
-        self.forwarders   : list  = None
+        self.forwarders   : List[int]  = []
         self.secret_file  : str  = None
         self.log_level    : str  = None
 
@@ -74,7 +75,9 @@ class Config:
         self.mtu = conf.get('mtu', DEFAULT_MTU)
 
         if conf.get('forwarders'):
-            self.forwarders = [id_pton(id_str) for id_str in conf.get('forwarders')]
+            for id_str in conf.get('forwarders'):
+                if id_pton(id_str) != id_pton(self.id):
+                    self.forwarders.append(id_pton(id_str))
 
         self.secret_file = os.path.join(
             _get_conf_dir(self.path),
