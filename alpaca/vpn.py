@@ -27,6 +27,10 @@ class VPN:
         ip_a, ip_b = config.net.split('.')
         self.network = (int(ip_a) << 24) + (int(ip_b) << 16)
         self.id = id_pton(config.id)
+        if config.gateway:
+            self.gateway = id_pton(config.gateway)
+        else:
+            self.gateway = 0
 
     def __repr__(self):
         return f'network: {self.config.net}, id: {self.id}'
@@ -40,12 +44,16 @@ class VPN:
             self.SEQUENCE = 0
 
     def get_dst_addrs(self, src_id: int, dst_id: int) -> List[PeerAddr]:
-        if not self.config.forwarders:
-            return self.peers.pool[dst_id].get_addrs()
-
-        # from server to client
+        # 1) From server to client, don't send to forwarder (configured on current host).
+        #    If client has static address, will send to both static and dynamical.
         if src_id < dst_id:
             return self.peers.pool[dst_id].get_addrs()
+
+        # 2) followings are from client to server
+        #    Servers must have static addresses, so only send to static.
+
+        if not self.config.forwarders:
+            return self.peers.pool[dst_id].get_addrs(static=True)
 
         dst_addrs = []
         for forwarder_id in self.config.forwarders:

@@ -66,6 +66,7 @@ class PktOut:
 
         h.src_id = self.vpn.id
 
+        # TODO: src_in/dst_in can be removed, because NATed address can tell
         if (self.vpn.network & self.vpn.NETMASK) == (ip_h.src_ip & self.vpn.NETMASK):
             h.src_in = 1
             ip.snat(h.src_id)
@@ -78,9 +79,8 @@ class PktOut:
             ip.dnat(h.dst_id)
         else:
             h.dst_in = 0
-            # TODO: get dst_id from local route
-            h.dst_id = 0
-            raise Exception('should get dst_id from local route')
+            # TODO: currently, only use gateway as dst_id. Should get dst_id from local route.
+            h.dst_id = self.vpn.gateway
 
         # body changed after nat
         self.body = ip.to_network()
