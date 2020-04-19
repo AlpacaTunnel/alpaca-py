@@ -10,7 +10,8 @@ from multiprocessing.sharedctypes import Array
 from .common import truncate_key, ip_ntop, ip_pton, id_pton
 
 MAX_ID = 65535
-MAX_ADDR = 4  # each peer stores 4 addresses
+# Each peer stores 4 addresses, increase if need more forwarders. It seems path_index in header is not nessary?
+MAX_ADDR = 4
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,23 @@ class PktFilter:
         self.mark_1 = [False, ] * self.limit
         self.mark_2 = [False, ] * self.limit
 
-    def is_dup(self, timestamp: int, sequence: int) -> bool:
+    def is_valid(self, timestamp: int, sequence: int) -> bool:
+        # TODO: filter too many timestamp jump, maybe attack
         if sequence >= self.limit:
-            return True
+            return False
 
+        if self._is_dup(timestamp, sequence):
+            logger.debug('Pkt is duplicated')
+            return False
+
+        return True
+
+    def _is_dup(self, timestamp: int, sequence: int) -> bool:
         time_diff = timestamp - self.latest
 
-        if time_diff > 2:
+        # let's assume max delay is 600s
+        # if time_diff < -600, it should be timestamp jump from max to 0
+        if time_diff > 2 or time_diff < -600:
             self.latest = timestamp
             self.mark_2 = [False, ] * self.limit
             self.mark_1 = [False, ] * self.limit
@@ -106,7 +117,8 @@ class PktFilter:
                 self.mark_2[sequence] = True
                 return False
 
-        return True
+        # -2 > time_diff > -600, do nothing and treat it as not dup
+        return False
 
 
 class Peer:
@@ -131,6 +143,8 @@ class Peer:
     def add_addr(self, addr: PeerAddr):
         if addr.port == 0:
             logger.error('Got wrong address with port 0.')
+            return
+
         # update last_active timestamp if already stored
         for index in range(self._offset, self._offset + MAX_ADDR):
             if self.addr_array[index] == addr:
@@ -153,8 +167,10 @@ class Peer:
         if static:
             return list(filter(lambda addr: addr.port and addr.static, my_array))
 
-        # clear inactive
-        for addr in filter(lambda addr: addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60, my_array):
+        # clear inactive dynamic addresses
+        for addr in filter(
+                lambda addr: addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60,
+                my_array):
             addr.port = 0
 
         return list(filter(lambda addr: addr.port, my_array))

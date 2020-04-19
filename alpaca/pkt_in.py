@@ -51,7 +51,7 @@ class PktIn:
 
         self._store_peer_addr()
 
-        if self._is_pkt_dup():
+        if not self._is_pkt_valid():
             self.valid = False
             return
 
@@ -65,12 +65,10 @@ class PktIn:
     def _process_forward(self):
         h = self.header
         if h.ttl == 0:
-            logger.debug('TTL expired')
+            logger.error('TTL expired: (%s -> %s)', h.src_id, h.dst_id)
             self.valid = False
             return
 
-        # 2 bits, max value is 3
-        h.pi_b = min(h.pi_b + 1, 3)
         h.ttl -= 1
 
         header_cipher = self.vpn.group_cipher.encrypt(h.to_network())
@@ -79,8 +77,16 @@ class PktIn:
 
         self.new_outter_pkt = b''.join([header_cipher, icv, body_cipher])
 
+        self._fill_dst_addrs()
+
+    def _fill_dst_addrs(self):
         self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
-        logger.debug(self.dst_addrs)
+        try:
+            # split horizon
+            self.dst_addrs.remove(self.addr)
+        except ValueError:
+            pass
+        logger.debug('(%s -> %s): %s', self.header.src_id, self.header.dst_id, self.dst_addrs)
 
     def _decrypt_body(self) -> bytes:
         aes_block_length = ((self.header.length + 15) // 16) * 16
@@ -98,24 +104,24 @@ class PktIn:
             return False
 
         if not self.peers.pool.get(h.src_id) or not self.peers.pool.get(h.dst_id):
-            logger.debug(f'Not found srd_id or dst_id: {h.src_id} -> {h.dst_id}')
+            logger.debug('Not found srd_id or dst_id: (%s -> %s)', h.src_id, h.dst_id)
             return False
 
         if h.src_id == h.dst_id:
-            logger.debug(f'Invalid srd_id or dst_id: {h.src_id} -> {h.dst_id}')
+            logger.debug('The same srd_id and dst_id: (%s -> %s)', h.src_id, h.dst_id)
             return False
 
         return True
 
-    def _is_pkt_dup(self) -> bool:
+    def _is_pkt_valid(self) -> bool:
         h = self.header
         self.peers.pool[h.src_id].init_pkt_filter()
 
-        if self.peers.pool[h.src_id].pkt_filter.is_dup(h.timestamp, h.sequence):
-            logger.debug('Packet is duplicated, drop it')
-            return True
+        if not self.peers.pool[h.src_id].pkt_filter.is_valid(h.timestamp, h.sequence):
+            logger.debug('Packet is filtered as invalid, drop it: (%s -> %s)', h.src_id, h.dst_id)
+            return False
 
-        return False
+        return True
 
     def _get_header(self):
         header_cipher = self.outter_pkt[0:HEADER_LENGTH]
@@ -126,13 +132,13 @@ class PktIn:
     def _is_icv_valid(self) -> bool:
         icv = self._get_icv()
         if icv != self.outter_pkt[HEADER_LENGTH: HEADER_LENGTH+ICV_LENGTH]:
-            logger.debug('icv not match')
+            logger.debug('icv not match: (%s -> %s)', self.header.src_id, self.header.dst_id)
             return False
 
         return True
 
     def _store_peer_addr(self):
-        logger.debug(self.addr)
+        logger.debug('%s: %s', self.header.src_id, self.addr)
         self.peers.pool[self.header.src_id].add_addr(self.addr)
 
     def _get_body(self):
@@ -141,7 +147,7 @@ class PktIn:
         logger.debug(ip)
 
         if ip.header.version != 4:
-            logger.debug(f'not support version: {ip.header.version}')
+            logger.debug('not support version: %s', ip.header.version)
             self.valid = False
             return
 

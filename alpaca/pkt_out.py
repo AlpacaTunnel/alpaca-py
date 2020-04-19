@@ -27,7 +27,13 @@ class PktOut:
         self.dst_addrs: List[PeerAddr] = None
         self.valid = True
 
+        self._process()
+
+    def _process(self):
         self._fill_header()
+        if not self.valid:
+            return
+
         self._fill_outter_pkt()
         self._fill_dst_addrs()
 
@@ -50,7 +56,7 @@ class PktOut:
         ip_h = ip.header
 
         if ip_h.version != 4:
-            logger.debug(f'not support version: {ip_h.version}')
+            logger.debug('not support version: %s', ip_h.version)
             self.valid = False
             return
 
@@ -91,9 +97,6 @@ class PktOut:
         logger.debug(h)
 
     def _fill_outter_pkt(self):
-        if not self.valid:
-            return
-
         h = self.header
         header_cipher = self.vpn.group_cipher.encrypt(h.to_network())
 
@@ -106,8 +109,5 @@ class PktOut:
         self.outter_pkt = b''.join([header_cipher, icv, body_cipher])
 
     def _fill_dst_addrs(self):
-        if not self.valid:
-            return
-
         self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
-        logger.debug(self.dst_addrs)
+        logger.debug('(%s -> %s): %s', self.header.src_id, self.header.dst_id, self.dst_addrs)

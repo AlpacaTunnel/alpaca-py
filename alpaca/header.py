@@ -17,8 +17,6 @@ class Header:
         ('length'    ,  11),
         ('m'         ,  1 ),
         ('ttl'       ,  4 ),
-        ('pi_a'      ,  2 ),
-        ('pi_b'      ,  2 ),
         ('src_in'    ,  1 ),
         ('dst_in'    ,  1 ),
         ('reserved'  ,  6 ),
