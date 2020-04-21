@@ -2,6 +2,7 @@
 
 import logging
 import time
+import sys
 import socket
 import argparse
 import traceback
@@ -12,6 +13,7 @@ from alpaca.config import Config
 from alpaca.peer import PeerPool, PeerAddr
 from alpaca.common import ip_pton, ip_ntop
 from alpaca.tunnel import Tunnel
+from alpaca.system import System
 from alpaca.vpn import VPN
 from alpaca.pkt_in import PktIn
 from alpaca.pkt_out import PktOut
@@ -31,8 +33,8 @@ def worker_send(sock, tun, vpn):
             for addr in pkt.dst_addrs:
                 sock.sendto(pkt.outter_pkt, (ip_ntop(addr.ip), addr.port))
         except Exception as exc:
-            traceback.print_exc()
-            print(f'Got Exception in worker_send: {exc.__class__.__name__}: {exc}')
+            logger.debug(traceback.format_exc())
+            logger.error(f'Got Exception in worker_send: {exc.__class__.__name__}: {exc}')
 
 
 def worker_recv(sock, tun, vpn):
@@ -57,8 +59,8 @@ def worker_recv(sock, tun, vpn):
                     sock.sendto(pkt.new_outter_pkt, (ip_ntop(addr.ip), addr.port))
 
         except Exception as exc:
-            traceback.print_exc()
-            print(f'Got Exception in worker_recv: {exc.__class__.__name__}: {exc}')
+            logger.debug(traceback.format_exc())
+            logger.error(f'Got Exception in worker_recv: {exc.__class__.__name__}: {exc}')
 
 
 def start_server(tun, conf, peers):
@@ -66,8 +68,8 @@ def start_server(tun, conf, peers):
     sock.bind(('0.0.0.0', conf.port))
 
     vpn = VPN(conf, peers)
-    # Worker(target=worker_send, args = (sock, tun, vpn)).start()
-    Worker(target=worker_recv, args = (sock, tun, vpn)).start()
+    # Worker(target=worker_send, args=(sock, tun, vpn)).start()
+    Worker(target=worker_recv, args=(sock, tun, vpn)).start()
 
     worker_send(sock, tun, vpn)
     # worker_recv(sock, tun, vpn)
@@ -90,6 +92,14 @@ def main():
 
     tun = Tunnel(conf.name, conf.mtu, f'{conf.net}.{conf.id}')
     tun_fd = tun.delete().add().open()
+
+    if conf.mode == 'client':
+        system = System(conf, peers)
+        try:
+            system.init()
+        except Exception:
+            system.restore()
+            sys.exit(1)
 
     start_server(tun_fd, conf, peers)
 

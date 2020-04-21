@@ -82,6 +82,11 @@ class PktOut:
             # TODO: currently, only use gateway as dst_id. Should get dst_id from local route.
             h.dst_id = self.vpn.gateway
 
+        if h.dst_id == 0:
+            logger.debug('no dst id to send')
+            self.valid = False
+            return
+
         # body changed after nat
         self.body = ip.to_network()
 

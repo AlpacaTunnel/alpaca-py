@@ -1,6 +1,7 @@
 """
 small helper functions.
 """
+from typing import Tuple
 import socket
 import subprocess
 
@@ -32,7 +33,7 @@ def id_pton(id_str: str) -> int:
     return int(id_str.split('.')[0]) * 256 + int(id_str.split('.')[1])
 
 
-def exec_cmd(cmd: str):
+def exec_cmd(cmd: str) -> Tuple[int, str]:
     bash_cmd = ['bash', '-c', cmd]
     child = subprocess.Popen(bash_cmd,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

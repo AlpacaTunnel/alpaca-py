@@ -51,6 +51,7 @@ class Config:
         self.log_level    : str  = None
 
         self._parse_json()
+        self._validate()
 
     def __repr__(self):
         result = '\n'
@@ -84,3 +85,9 @@ class Config:
             conf.get('secret_file', self.DEFAULT_SECRET))
 
         self.log_level = conf.get('log_level', 'info').upper()
+
+    def _validate(self):
+        assert self.mode in ('server', 'client')
+
+        if self.mode == 'client':
+            assert self.gateway

@@ -35,7 +35,7 @@ class PeerAddr(ctypes.Structure):
         return (self.ip << 16) + self.port
 
     def __repr__(self):
-        return f"{ip_ntop(self.ip)}:{self.port}"
+        return f"{ip_ntop(self.ip)}:{self.port} ({self.static}-{self.last_active})"
 
 
 class PktFilter:
@@ -160,19 +160,27 @@ class Peer:
 
     def get_addrs(self, static=False) -> List[PeerAddr]:
         """
-        If static, only return static addrs.
-        Else return all static and active dynamic (last_active within 60s)
+        1) If static, only return static addrs.
+        2) If there are active static+dynamic, return them.
+        3) Return inactive static. (dynamic is always active.)
         """
         my_array = self.addr_array[self._offset: self._offset + MAX_ADDR]
         if static:
             return list(filter(lambda addr: addr.port and addr.static, my_array))
 
         # clear inactive dynamic addresses
-        for addr in filter(
-                lambda addr: addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60,
-                my_array):
-            addr.port = 0
+        # Don't do this in add_addr, because add_addr is not called if no pkt in.
+        for index in range(self._offset, self._offset + MAX_ADDR):
+            addr = self.addr_array[index]
+            if addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60:
+                addr.port = 0
 
+        # if static addr is not active, don't send to it, in case upward/downward path not the same.
+        active = list(filter(lambda addr: addr.port and (int(time.time()) - addr.last_active) < 60, my_array))
+        if active:
+            return active
+
+        # send to inactive static addr, in case no dynamic addr found.
         return list(filter(lambda addr: addr.port, my_array))
 
     def __repr__(self):
@@ -223,7 +231,6 @@ class PeerPool:
                 version=4,
                 ip=ip_pton(ip),
                 port=int(port),
-                last_active=0,
             )
             self.pool[id].add_addr(addr)
 
