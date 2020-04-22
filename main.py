@@ -26,7 +26,16 @@ logger = logging.getLogger(__name__)
 def worker_send(sock, tun, vpn):
     while vpn.running.value:
         try:
-            body = tun.read(ETH_MTU)
+            try:
+                body = tun.read(ETH_MTU)
+            except OSError as err:
+                # If tunif deleted:
+                # OSError: [Errno 14] Bad address
+                # OSError: [Errno 77] File descriptor in bad state
+                logger.error(f'Got Exception in worker_send: {err.__class__.__name__}: {err}')
+                vpn.running.value = 0
+                continue
+
             pkt = PktOut(vpn, body)
             if not pkt.valid:
                 continue
