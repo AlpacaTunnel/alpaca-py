@@ -1,10 +1,12 @@
 import re
 import time
 import logging
+import signal
 
 from .common import exec_cmd, ip_ntop
 from .config import Config
 from .peer import PeerPool
+from .vpn import VPN
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +78,24 @@ class System:
     def restore(self):
         for cmd in self._del_routes_cmds():
             self._cmd(cmd, strict=False)
+
+
+def signal_handler(sig, frame):
+    logger.info('signal recived: %s', sig)
+    global SYSTEM_INSTANCE, VPN_INSTANCE
+    # avoid dup restore routes
+    if VPN_INSTANCE.running.value:
+        SYSTEM_INSTANCE.restore()
+    VPN_INSTANCE.running.value = 0
+
+
+def install_signal_restore(sys: System, vpn: VPN):
+    global SYSTEM_INSTANCE, VPN_INSTANCE
+    SYSTEM_INSTANCE = sys
+    VPN_INSTANCE = vpn
+
+    signal.signal(signal.SIGHUP, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGQUIT, signal_handler)
+    signal.signal(signal.SIGABRT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)

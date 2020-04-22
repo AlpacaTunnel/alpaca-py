@@ -4,6 +4,7 @@ VPN Context.
 from typing import List
 import time
 from Crypto.Cipher import AES
+from multiprocessing import Value
 
 from .common import truncate_key, id_pton
 from .config import Config
@@ -23,6 +24,8 @@ class VPN:
         self.config = config
         self.group_cipher = AES.new(truncate_key(config.group), AES.MODE_ECB)
         self.peers = peers
+
+        self.running = Value('i', 1)  # use an integer to indicate running or not
 
         ip_a, ip_b = config.net.split('.')
         self.network = (int(ip_a) << 24) + (int(ip_b) << 16)
