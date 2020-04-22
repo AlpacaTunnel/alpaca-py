@@ -1,5 +1,6 @@
 """
 Load ID and PSK from secret.txt.
+Bigger ID is client, smaller ID is server.
 """
 from typing import Tuple, List, Dict
 import logging
@@ -158,11 +159,12 @@ class Peer:
                 self.addr_array[index].last_active = int(time.time())
                 return
 
-    def get_addrs(self, static=False) -> List[PeerAddr]:
+    def get_addrs(self, static=False, inactive_downward_static=False) -> List[PeerAddr]:
         """
-        1) If static, only return static addrs.
-        2) If there are active static+dynamic, return them.
-        3) Return inactive static. (dynamic is always active.)
+        -> If static, only return static addrs (both active/inactive).
+        -> If inactive_downward_static, send to active dynamic + all static.
+        -> If there are active static+dynamic, return them.
+        -> Return inactive static. (dynamic is always active.)
         """
         my_array = self.addr_array[self._offset: self._offset + MAX_ADDR]
         if static:
@@ -174,6 +176,22 @@ class Peer:
             addr = self.addr_array[index]
             if addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60:
                 addr.port = 0
+
+        # Consider the topology with a server, a client, a forwarder:
+        #
+        #  server ---- forwarder ------|
+        #      |-----------------------|---- client
+        #
+        # The client sends pkt to server both directly and via a forwarder (server is configured as a forwarder).
+        # If client to server direct upward link is blocked by firewall, then downward pkt
+        # can only go throuth forwarder, even if server to client downward link still works,
+        # and even if they all have each other's static addresses (because it's inactive).
+        # To use server-to-client downward link, send to client's inactive static addr (if inactive_downward_static is True).
+        # In this case, upward/downward path is not the same in the view of the server.
+
+        # active dynamic + all static
+        if inactive_downward_static:
+            return list(filter(lambda addr: addr.port, my_array))
 
         # if static addr is not active, don't send to it, in case upward/downward path not the same.
         active = list(filter(lambda addr: addr.port and (int(time.time()) - addr.last_active) < 60, my_array))

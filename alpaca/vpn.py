@@ -47,7 +47,8 @@ class VPN:
         # 1) From server to client, don't send to forwarder (configured on current host).
         #    If client has static address, will send to both static and dynamical.
         if src_id < dst_id:
-            return self.peers.pool[dst_id].get_addrs()
+            return self.peers.pool[dst_id].get_addrs(
+                inactive_downward_static=self.config.inactive_downward_static)
 
         # 2) followings are from client to server
         #    Servers must have static addresses, so only send to static.

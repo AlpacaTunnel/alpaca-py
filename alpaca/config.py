@@ -49,6 +49,7 @@ class Config:
         self.forwarders   : List[int]  = []
         self.secret_file  : str  = None
         self.log_level    : str  = None
+        self.inactive_downward_static: bool = False
 
         self._parse_json()
         self._validate()
@@ -72,6 +73,7 @@ class Config:
         self.net = conf['net']
         self.id = conf['id']
         self.gateway = conf.get('gateway')
+        self.inactive_downward_static = conf.get('inactive_downward_static', False)
         self.port = conf.get('port', 0)
         self.mtu = conf.get('mtu', DEFAULT_MTU)
 
