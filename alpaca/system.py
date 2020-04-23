@@ -10,6 +10,8 @@ from .vpn import VPN
 
 logger = logging.getLogger(__name__)
 
+TCP_MSS = 1300
+
 
 class System:
     def __init__(self, conf: Config, peers: PeerPool):
@@ -69,15 +71,61 @@ class System:
             time.sleep(1)
         self.default_route = self._get_default_route()
 
-    def init(self):
+    def _init_client(self):
         self._wait_default_route()
 
-        for cmd in self._add_routes_cmds():
+        cmds = self._add_routes_cmds()
+        cmds += [
+            'sysctl net.ipv4.ip_forward=1',
+            f'iptables -A FORWARD -s {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -A FORWARD -d {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {TCP_MSS}',
+        ]
+        for cmd in cmds:
             self._cmd(cmd)
 
-    def restore(self):
-        for cmd in self._del_routes_cmds():
+    def _restore_client(self):
+        cmds = self._del_routes_cmds()
+        cmds += [
+            f'iptables -D FORWARD -s {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -D FORWARD -d {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {TCP_MSS}',
+        ]
+        for cmd in cmds:
             self._cmd(cmd, strict=False)
+
+    def _init_server(self):
+        cmds = [
+            'sysctl net.ipv4.ip_forward=1',
+            f'iptables -A FORWARD -s {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -A FORWARD -d {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {TCP_MSS}',
+            f'iptables -A POSTROUTING -t nat -s {self.conf.net}.0.0/16 -j MASQUERADE',
+        ]
+        for cmd in cmds:
+            self._cmd(cmd)
+
+    def _restore_server(self):
+        cmds = [
+            f'iptables -D FORWARD -s {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -D FORWARD -d {self.conf.net}.0.0/16 -j ACCEPT',
+            f'iptables -t mangle -D POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {TCP_MSS}',
+            f'iptables -D POSTROUTING -t nat -s {self.conf.net}.0.0/16 -j MASQUERADE',
+        ]
+        for cmd in cmds:
+            self._cmd(cmd, strict=False)
+
+    def init(self):
+        if self.conf.mode == 'client':
+            self._init_client()
+        else:
+            self._init_server()
+
+    def restore(self):
+        if self.conf.mode == 'client':
+            self._restore_client()
+        else:
+            self._restore_server()
 
 
 def signal_handler(sig, frame):

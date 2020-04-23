@@ -89,7 +89,7 @@ class Config:
         self.log_level = conf.get('log_level', 'info').upper()
 
     def _validate(self):
-        assert self.mode in ('server', 'client')
+        assert self.mode in ('server', 'client', 'forwarder')
 
         if self.mode == 'client':
             assert self.gateway

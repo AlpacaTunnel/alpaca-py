@@ -41,6 +41,7 @@ def worker_send(sock, tun, vpn):
                 continue
             for addr in pkt.dst_addrs:
                 sock.sendto(pkt.outter_pkt, (ip_ntop(addr.ip), addr.port))
+
         except Exception as exc:
             logger.debug(traceback.format_exc())
             logger.error(f'Got Exception in worker_send: {exc.__class__.__name__}: {exc}')
@@ -65,7 +66,7 @@ def worker_recv(sock, tun, vpn):
             if pkt.action == pkt.ACTION_WRITE:
                 tun.write(pkt.body)
 
-            if pkt.action == pkt.ACTION_FORWARD:
+            elif pkt.action == pkt.ACTION_FORWARD:
                 for addr in pkt.dst_addrs:
                     sock.sendto(pkt.new_outter_pkt, (ip_ntop(addr.ip), addr.port))
 
@@ -77,7 +78,9 @@ def worker_recv(sock, tun, vpn):
 
 
 def start_server(sock, tun, system, vpn):
-    Worker(target=worker_send, args=(sock, tun, vpn)).start()
+    if vpn.config.mode != 'forwarder':
+        Worker(target=worker_send, args=(sock, tun, vpn)).start()
+
     Worker(target=worker_recv, args=(sock, tun, vpn)).start()
 
     # worker_send(sock, tun, vpn)
@@ -105,8 +108,13 @@ def main():
     logger.debug(conf)
     logger.debug(peers)
 
-    tun = Tunnel(conf.name, conf.mtu, f'{conf.net}.{conf.id}')
-    tun_fd = tun.delete().add().open()
+    # For a pure forwarder, don't create tuntap interface.
+    # If you want a tuntap interface, use "server" instead, it can also forward.
+    if conf.mode == 'forwarder':
+        tun_fd = 0
+    else:
+        tun_nic = Tunnel(conf.name, conf.mtu, f'{conf.net}.{conf.id}')
+        tun_fd = tun_nic.delete().add().open()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(('0.0.0.0', conf.port))
@@ -114,12 +122,11 @@ def main():
     vpn = VPN(conf, peers)
     system = System(conf, peers)
 
-    if conf.mode == 'client':
-        try:
-            system.init()
-        except Exception:
-            system.restore()
-            sys.exit(1)
+    try:
+        system.init()
+    except Exception:
+        system.restore()
+        sys.exit(1)
 
     start_server(sock, tun_fd, system, vpn)
 

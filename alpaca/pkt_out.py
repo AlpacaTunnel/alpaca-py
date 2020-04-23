@@ -111,7 +111,12 @@ class PktOut:
         icv = self._get_icv(psk)
         body_cipher = self._encrypt_body(h, psk)
 
-        self.outter_pkt = b''.join([header_cipher, icv, body_cipher])
+        if h.length > 500:
+            padding = b''
+        else:
+            padding = os.urandom(random.randint(250, 800))
+
+        self.outter_pkt = b''.join([header_cipher, icv, body_cipher, padding])
 
     def _fill_dst_addrs(self):
         self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
