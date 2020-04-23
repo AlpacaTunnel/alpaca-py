@@ -90,9 +90,9 @@ def start_server(sock, tun, system, vpn):
     install_signal_restore(system, vpn)
 
     while vpn.running.value:
-        time.sleep(1)
+        time.sleep(0.1)
 
-    time.sleep(1)  # wait signal handler
+    time.sleep(0.1)  # wait signal handler
     logger.info('The main progress has ended.')
 
 

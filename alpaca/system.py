@@ -42,6 +42,9 @@ class System:
                 ip = ip_ntop(addr.ip)
                 cmds.append(f'ip route add {ip} via {self.default_route} table default')
 
+        for ip in self.conf.local_routes:
+            cmds.append(f'ip route add {ip} via {self.default_route} table default')
+
         cmds.append(f'ip route add default via {self.gateway} table default')
         return cmds
 
@@ -55,6 +58,9 @@ class System:
             for addr in peer.get_addrs(static=True):
                 ip = ip_ntop(addr.ip)
                 cmds.append(f'ip route delete {ip} via {self.default_route} table default')
+
+        for ip in self.conf.local_routes:
+            cmds.append(f'ip route delete {ip} via {self.default_route} table default')
 
         cmds.append(f'ip route delete default table default')
         return cmds
@@ -121,11 +127,25 @@ class System:
         sock.bind(('0.0.0.0', 0))
         sock.sendto(b'0', ('0.0.0.0', self.conf.port))
 
+    def _exec_post_up_cmds(self):
+        if not self.conf.post_up_cmds:
+            return
+        for cmd in self.conf.post_up_cmds:
+            self._cmd(cmd)
+
+    def _exec_post_down_cmds(self):
+        if not self.conf.post_down_cmds:
+            return
+        for cmd in self.conf.post_down_cmds:
+            self._cmd(cmd, strict=False)
+
     def init(self):
         if self.conf.mode == 'client':
             self._init_client()
         else:
             self._init_server()
+
+        self._exec_post_up_cmds()
 
     def restore(self):
         if self.conf.mode == 'client':
@@ -136,6 +156,8 @@ class System:
         # quick fix: remove the tuntap and send pkt to self to end worker_recv
         self._cmd(f'ip link del {self.conf.name}', strict=False)
         self._send_pkt_to_self()
+
+        self._exec_post_down_cmds()
 
 
 def signal_handler(sig, frame):

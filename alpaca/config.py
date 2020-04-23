@@ -46,10 +46,13 @@ class Config:
         self.gateway : str  = None
         self.port    : str  = None
         self.mtu     : str  = None
-        self.forwarders   : List[int]  = []
+        self.forwarders   : List[int] = []
         self.secret_file  : str  = None
         self.log_level    : str  = None
         self.inactive_downward_static: bool = False
+        self.post_up_cmds   : List[str] = []
+        self.post_down_cmds : List[str] = []
+        self.local_routes   : List[str] = []
 
         self._parse_json()
         self._validate()
@@ -76,6 +79,9 @@ class Config:
         self.inactive_downward_static = conf.get('inactive_downward_static', False)
         self.port = conf.get('port', 0)
         self.mtu = conf.get('mtu', DEFAULT_MTU)
+        self.post_up_cmds = conf.get('post_up_cmds', [])
+        self.post_down_cmds = conf.get('post_down_cmds', [])
+        self.local_routes = conf.get('local_routes', [])
 
         if conf.get('forwarders'):
             for id_str in conf.get('forwarders'):
