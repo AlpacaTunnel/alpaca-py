@@ -2,6 +2,7 @@ import re
 import time
 import logging
 import signal
+import socket
 
 from .common import exec_cmd, ip_ntop
 from .config import Config
@@ -115,6 +116,11 @@ class System:
         for cmd in cmds:
             self._cmd(cmd, strict=False)
 
+    def _send_pkt_to_self(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(('0.0.0.0', 0))
+        sock.sendto(b'0', ('0.0.0.0', self.conf.port))
+
     def init(self):
         if self.conf.mode == 'client':
             self._init_client()
@@ -126,6 +132,10 @@ class System:
             self._restore_client()
         else:
             self._restore_server()
+
+        # quick fix: remove the tuntap and send pkt to self to end worker_recv
+        self._cmd(f'ip link del {self.conf.name}', strict=False)
+        self._send_pkt_to_self()
 
 
 def signal_handler(sig, frame):
