@@ -23,10 +23,14 @@ class System:
 
     def _cmd(self, c, strict=True) -> str:
         rc, output = exec_cmd(c)
-        if strict and int(rc) != 0:
-            err = f'cmd ({c}) error: {output}'
-            logger.error(err)
-            raise Exception(err)
+
+        if rc != 0:
+            err = f'cmd ({c}) error: ({output})'
+            logger.warning(err)
+
+            if strict:
+                raise Exception(err)
+
         return output
 
     def _add_routes_cmds(self):
@@ -66,7 +70,7 @@ class System:
         return cmds
 
     def _get_default_route(self):
-        route = self._cmd('ip route')
+        route = self._cmd('ip route show default')
         re_obj = re.search(r'default via\s([\.\d]+)\s', route)
         if not re_obj:
             return None
@@ -77,6 +81,32 @@ class System:
             logger.debug('No default route yet, wait 1s and try again...')
             time.sleep(1)
         self.default_route = self._get_default_route()
+
+    def _get_chnroute_file(self, action='add') -> str:
+        data = ''
+        with open(self.conf.chnroute['data']) as f:
+            for route in filter(lambda s: s.strip(), f.readlines()):
+                data += f'route {action} {route.strip()} via {self.default_route} table {self.conf.chnroute["table"]}\n'
+
+        tmp_file = f'/tmp/chnroute-{action}-1984'
+        with open(tmp_file, 'w') as f:
+            f.write(data)
+
+        return tmp_file
+
+    def _chnroute(self):
+        if not self.conf.chnroute:
+            return
+        cmd = f'ip -force -batch {self._get_chnroute_file()}'
+        logger.debug(cmd)
+        self._cmd(cmd)
+
+    def _chnroute_restore(self):
+        if not self.conf.chnroute:
+            return
+        cmd = f'ip -force -batch {self._get_chnroute_file("del")}'
+        logger.debug(cmd)
+        self._cmd(cmd)
 
     def _init_client(self):
         self._wait_default_route()
@@ -91,6 +121,8 @@ class System:
         for cmd in cmds:
             self._cmd(cmd)
 
+        self._chnroute()
+
     def _restore_client(self):
         cmds = self._del_routes_cmds()
         cmds += [
@@ -100,6 +132,8 @@ class System:
         ]
         for cmd in cmds:
             self._cmd(cmd, strict=False)
+
+        self._chnroute_restore()
 
     def _init_server(self):
         cmds = [
@@ -167,6 +201,7 @@ def signal_handler(sig, frame):
     if VPN_INSTANCE.running.value:
         SYSTEM_INSTANCE.restore()
     VPN_INSTANCE.running.value = 0
+    logger.info('signal handler finished.')
 
 
 def install_signal_restore(sys: System, vpn: VPN):

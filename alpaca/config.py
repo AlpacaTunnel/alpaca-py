@@ -1,7 +1,7 @@
 """
 Parse the config.json
 """
-from typing import List
+from typing import List, Dict
 import os
 import json
 
@@ -46,13 +46,14 @@ class Config:
         self.gateway : str  = None
         self.port    : str  = None
         self.mtu     : str  = None
-        self.forwarders   : List[int] = []
         self.secret_file  : str  = None
         self.log_level    : str  = None
         self.inactive_downward_static: bool = False
+        self.forwarders     : List[int] = []
         self.post_up_cmds   : List[str] = []
         self.post_down_cmds : List[str] = []
         self.local_routes   : List[str] = []
+        self.chnroute       : Dict = {}
 
         self._parse_json()
         self._validate()
@@ -91,6 +92,12 @@ class Config:
         self.secret_file = os.path.join(
             _get_conf_dir(self.path),
             conf.get('secret_file', self.DEFAULT_SECRET))
+
+        if conf.get('chnroute'):
+            self.chnroute = conf.get('chnroute')
+            self.chnroute['data'] = os.path.join(
+                _get_conf_dir(self.path),
+                conf.get('chnroute')['data'])
 
         self.log_level = conf.get('log_level', 'info').upper()
 
