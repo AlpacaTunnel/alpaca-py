@@ -143,20 +143,20 @@ class PktIn:
 
     def _get_body(self):
         body = self._decrypt_body()
+
+        if not self.vpn.do_nat:
+            self.body = body
+            return
+
         ip = IPPacket().from_network(body)
         logger.debug(ip)
 
-        if ip.header.version != 4:
-            logger.debug('not support version: %s', ip.header.version)
-            self.valid = False
-            return
-
         h = self.header
-        if h.dst_in:
+        if h.dst_inside:
             new_ip = self.vpn.network + h.dst_id
             ip.dnat(new_ip)
 
-        if h.src_in:
+        if h.src_inside:
             new_ip = self.vpn.network + h.src_id
             ip.snat(new_ip)
 

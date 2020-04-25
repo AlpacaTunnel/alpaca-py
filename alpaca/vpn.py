@@ -12,7 +12,7 @@ from .peer import PeerPool, PeerAddr
 
 
 class VPN:
-    MAGIC = 1990
+    MAGIC = 64  # must less than 256
     NETMASK = 0xffff0000
     IDMASK = 0x0000ffff
 
@@ -28,18 +28,25 @@ class VPN:
         self.running = Value('i', 1)  # use an integer to indicate running or not
 
         ip_a, ip_b = config.net.split('.')
-        self.network = (int(ip_a) << 24) + (int(ip_b) << 16)
+        self.network: int = (int(ip_a) << 24) + (int(ip_b) << 16)
         self.id = id_pton(config.id)
         if config.gateway:
             self.gateway = id_pton(config.gateway)
         else:
             self.gateway = 0
 
+        self.do_nat = False
+        self.virtual_net = 0
+        if config.virtual_net and config.virtual_net != config.net:
+            self.do_nat = True
+            ip_a, ip_b = config.virtual_net.split('.')
+            self.virtual_net = (int(ip_a) << 24) + (int(ip_b) << 16)
+
     def __repr__(self):
         return f'network: {self.config.net}, id: {self.id}'
 
     def update_timestamp_seq(self):
-        now = int(time.time()) & 0x000fffff
+        now = int(time.time())
         if now == self.TIMESTAMP:
             self.SEQUENCE += 1
         else:

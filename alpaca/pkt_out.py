@@ -66,19 +66,24 @@ class PktOut:
 
         h.src_id = self.vpn.id
 
-        # TODO: src_in/dst_in can be removed, because NATed address can tell
         if (self.vpn.network & self.vpn.NETMASK) == (ip_h.src_ip & self.vpn.NETMASK):
-            h.src_in = 1
-            ip.snat(h.src_id)
+            logger.debug('source IP is within tunnel network')
+            h.src_inside = 1
+            if self.vpn.do_nat:
+                ip.snat(self.vpn.virtual_net + h.src_id)
         else:
-            h.src_in = 0
+            h.src_inside = 0
+            logger.debug('source IP is outside tunnel network')
 
         if (self.vpn.network & self.vpn.NETMASK) == (ip_h.dst_ip & self.vpn.NETMASK):
-            h.dst_in = 1
+            logger.debug('dest IP is within tunnel network')
+            h.dst_inside = 1
             h.dst_id = ip_h.dst_ip & self.vpn.IDMASK
-            ip.dnat(h.dst_id)
+            if self.vpn.do_nat:
+                ip.dnat(self.vpn.virtual_net + h.dst_id)
         else:
-            h.dst_in = 0
+            logger.debug('dest IP is outside tunnel network')
+            h.dst_inside = 0
             # TODO: currently, only use gateway as dst_id. Should get dst_id from local route.
             h.dst_id = self.vpn.gateway
 
@@ -87,8 +92,9 @@ class PktOut:
             self.valid = False
             return
 
-        # body changed after nat
-        self.body = ip.to_network()
+        # body changed after NAT
+        if self.vpn.do_nat:
+            self.body = ip.to_network()
 
         logger.debug(ip)
 
@@ -97,7 +103,7 @@ class PktOut:
         self.vpn.update_timestamp_seq()
         h.timestamp = self.vpn.TIMESTAMP
         h.sequence = self.vpn.SEQUENCE
-        h.padding = random.randint(0, 4000)
+        h.random = os.urandom(2)
 
         logger.debug(h)
 

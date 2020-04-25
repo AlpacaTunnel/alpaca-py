@@ -55,8 +55,16 @@ class PktFilter:
         self.mark_2 = [False, ] * self.limit
 
     def is_valid(self, timestamp: int, sequence: int) -> bool:
-        # TODO: filter too many timestamp jump, maybe attack
         if sequence >= self.limit:
+            logger.debug('Pkt sequence number exceeded limit')
+            return False
+
+        if abs(timestamp - int(time.time())) > 2592000:
+            logger.debug('Peer timestamp shifts beyond 30 days')
+            return False
+
+        if timestamp - self.latest < -600:
+            logger.debug('Pkt delayed more than 600s, treat as invalid')
             return False
 
         if self._is_dup(timestamp, sequence):
@@ -68,9 +76,7 @@ class PktFilter:
     def _is_dup(self, timestamp: int, sequence: int) -> bool:
         time_diff = timestamp - self.latest
 
-        # let's assume max delay is 600s
-        # if time_diff < -600, it should be timestamp jump from max to 0
-        if time_diff > 2 or time_diff < -600:
+        if time_diff > 2:
             self.latest = timestamp
             self.mark_2 = [False, ] * self.limit
             self.mark_1 = [False, ] * self.limit
@@ -118,7 +124,7 @@ class PktFilter:
                 self.mark_2[sequence] = True
                 return False
 
-        # -2 > time_diff > -600, do nothing and treat it as not dup
+        # if time_diff < -2, do nothing and treat it as not dup
         return False
 
 

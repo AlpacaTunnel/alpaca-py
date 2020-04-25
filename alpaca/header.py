@@ -13,37 +13,31 @@ logger = logging.getLogger(__name__)
 
 class Header:
     FIELD_LENGTH = OrderedDict([
-        ('type'      ,  4 ),
+        ('type'      ,  3 ),
+        ('src_inside',  1 ),
+        ('dst_inside',  1 ),
         ('length'    ,  11),
-        ('m'         ,  1 ),
-        ('ttl'       ,  4 ),
-        ('src_in'    ,  1 ),
-        ('dst_in'    ,  1 ),
-        ('reserved'  ,  6 ),
+        ('random'    ,  16),
         ('src_id'    ,  16),
         ('dst_id'    ,  16),
-        ('timestamp' ,  20),
-        ('magic'     ,  12),
+        ('timestamp' ,  32),
         ('sequence'  ,  20),
-        ('padding'   ,  12),
+        ('ttl'       ,  4 ),
+        ('magic'     ,  8 ),
     ])
 
     def __init__(self):
         self.type       = 0
+        self.src_inside = 0
+        self.dst_inside = 0
         self.length     = 0
-        self.m          = 0
-        self.ttl        = 0
-        self.pi_a       = 0
-        self.pi_b       = 0
-        self.src_in     = 0
-        self.dst_in     = 0
-        self.reserved   = 0
+        self.random     = b''
         self.src_id     = 0
         self.dst_id     = 0
         self.timestamp  = 0
-        self.magic      = 0
         self.sequence   = 0
-        self.padding    = 0
+        self.ttl        = 0
+        self.magic      = 0
 
     def __repr__(self):
         result = '\n'
@@ -52,29 +46,24 @@ class Header:
             result += f'{field.ljust(12)}: {value}\n'
         return result
 
+    def _to_network(self, ttl) -> bytes:
+        type_sd_len = (self.type << 13) + (self.src_inside << 12) + (self.dst_inside << 11) + self.length
+        seq_ttl_magic = (self.sequence << 12) + (ttl << 8) + self.magic
+        return struct.pack(
+            '>H2sHHLL',
+            type_sd_len, self.random, self.src_id, self.dst_id, self.timestamp, seq_ttl_magic)
+
     def to_network(self) -> bytes:
         """
         convert to bytes in network byte order.
         """
-        type_len_m = (self.type << 12) + (self.length << 1) + self.m
-        ttl_pi_sd = (self.ttl << 12) + (self.pi_a << 10) + (self.pi_b << 8) + (self.src_in << 7) + (self.dst_in << 6) + self.reserved
-        time_magic = (self.timestamp << 12) + self.magic
-        seq_rand = (self.sequence << 12) + self.padding
-        return struct.pack(
-            '>HHHHLL',
-            type_len_m, ttl_pi_sd, self.src_id, self.dst_id, time_magic, seq_rand)
+        return self._to_network(self.ttl)
 
     def get_iv(self) -> bytes:
         """
-        Set ttl_pi_sd to 0, and convert to bytes in network byte order.
+        Set ttl to 0, and convert to bytes in network byte order.
         """
-        type_len_m = (self.type << 12) + (self.length << 1) + self.m
-        ttl_pi_sd = 0
-        time_magic = (self.timestamp << 12) + self.magic
-        seq_rand = (self.sequence << 12) + self.padding
-        return struct.pack(
-            '>HHHHLL',
-            type_len_m, ttl_pi_sd, self.src_id, self.dst_id, time_magic, seq_rand)
+        return self._to_network(0)
 
     def from_network(self, data: bytes):
         """
@@ -83,22 +72,14 @@ class Header:
         assert len(data) == HEADER_LENGTH
 
         (
-            type_len_m, ttl_pi_sd, self.src_id, self.dst_id, time_magic, seq_rand
-        ) = struct.unpack('>HHHHLL', data)
+            type_sd_len, self.random, self.src_id, self.dst_id, self.timestamp, seq_ttl_magic
+        ) = struct.unpack('>H2sHHLL', data)
 
-        self.type       =   type_len_m >> 12  # (type_len_m & 0xf000) >> 12
-        self.length     =  (type_len_m & 0x0ffe) >> 1
-        self.m          =   type_len_m & 0x0001
+        self.type       =   type_sd_len >> 13
+        self.src_inside =  (type_sd_len & 0x1000) >> 12
+        self.dst_inside =  (type_sd_len & 0x0800) >> 11
+        self.length     =   type_sd_len & 0x07ff
 
-        self.ttl        =   ttl_pi_sd >> 12  # (ttl_pi_sd & 0xf000) >> 12
-        self.pi_a       =  (ttl_pi_sd & 0x0c00) >> 10
-        self.pi_b       =  (ttl_pi_sd & 0x0300) >> 8
-        self.src_in     =  (ttl_pi_sd & 0x0080) >> 7
-        self.dst_in     =  (ttl_pi_sd & 0x0040) >> 6
-        self.reserved   =   ttl_pi_sd & 0x003f
-
-        self.timestamp  =   time_magic >> 12  # (time_magic & 0xfffff000) >> 12
-        self.magic      =   time_magic & 0x00000fff
-
-        self.sequence   =   seq_rand >> 12  # (seq_rand & 0xfffff000) >> 12
-        self.padding    =   seq_rand & 0x00000fff
+        self.sequence   =   seq_ttl_magic >> 12
+        self.ttl        =  (seq_ttl_magic & 0x00000f00) >> 8
+        self.magic      =   seq_ttl_magic & 0x000000ff

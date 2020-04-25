@@ -3,6 +3,7 @@
     "mode": "server",
     "group": "caonima",
     "net": "10.17",
+    "virtual_net": "10.18",
     "id": "1.1",
     "gateway": "1.1",
     "forwarders": [
