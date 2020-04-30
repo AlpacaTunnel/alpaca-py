@@ -1,15 +1,12 @@
 """
 Receive packet from socket, decrypt and write to tunif.
 """
-from typing import List
+from typing import Iterable
 import logging
-from Crypto.Cipher import AES
 
 from .vpn import VPN
 from .peer import PeerAddr
-from .header import Header, HEADER_LENGTH, ICV_LENGTH
-from .ip_packet import IPPacket
-# from .ip_packet_bytearray import IPPacket
+from .header import Header, HEADER_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -29,27 +26,21 @@ class PktIn:
         self.header = Header()
         self.psk: bytes = None
         self.body: bytes = None
-
         self.new_outter_pkt: bytes = None
-        self.dst_addrs: List[PeerAddr] = None
+        self.dst_addrs: Iterable[PeerAddr] = None
 
         self._process()
 
     def _process(self):
-        self._get_header()
+        self.header.from_network(self.outter_pkt[0: HEADER_LENGTH])
+        logger.debug(self.header)
 
         if not self._is_header_valid():
             self.valid = False
             return
 
-        bigger_id = max(self.header.src_id, self.header.dst_id)
-        self.psk = self.peers.pool[bigger_id].psk
-
-        if not self._is_icv_valid():
-            self.valid = False
-            return
-
-        self._store_peer_addr()
+        logger.debug('store addr of %s: %s', self.header.src_id, self.addr)
+        self.peers.pool[self.header.src_id].add_addr(self.addr)
 
         if not self._is_pkt_valid():
             self.valid = False
@@ -57,45 +48,18 @@ class PktIn:
 
         if self.header.dst_id == self.vpn.id:
             self.action = self.ACTION_WRITE
-            self._get_body()
+            self.body = self.outter_pkt[HEADER_LENGTH: HEADER_LENGTH + self.header.length]
         else:
             self.action = self.ACTION_FORWARD
-            self._process_forward()
+            self.new_outter_pkt = self.outter_pkt
+            self.dst_addrs = self._get_dst_addrs()
 
-    def _process_forward(self):
-        h = self.header
-        if h.ttl == 0:
-            logger.error('TTL expired: (%s -> %s)', h.src_id, h.dst_id)
-            self.valid = False
-            return
-
-        h.ttl -= 1
-
-        header_cipher = self.vpn.group_cipher.encrypt(h.to_network())
-        icv = self._get_icv()
-        body_cipher = self.outter_pkt[HEADER_LENGTH+ICV_LENGTH:]
-
-        self.new_outter_pkt = b''.join([header_cipher, icv, body_cipher])
-
-        self._fill_dst_addrs()
-
-    def _fill_dst_addrs(self):
-        self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
-        try:
-            # split horizon
-            self.dst_addrs.remove(self.addr)
-        except ValueError:
-            pass
-        logger.debug('(%s -> %s): %s', self.header.src_id, self.header.dst_id, self.dst_addrs)
-
-    def _decrypt_body(self) -> bytes:
-        aes_block_length = ((self.header.length + 15) // 16) * 16
-        cipher = AES.new(self.psk, AES.MODE_CBC, self.header.get_iv())
-        return cipher.decrypt(self.outter_pkt[HEADER_LENGTH+ICV_LENGTH: HEADER_LENGTH+ICV_LENGTH + aes_block_length])
-
-    def _get_icv(self):
-        cipher = AES.new(self.psk, AES.MODE_ECB)
-        return cipher.encrypt(self.header.to_network())
+    def _get_dst_addrs(self):
+        dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
+        for addr in dst_addrs:
+            if addr.ip != self.addr.ip:  # split horizon
+                logger.debug('(%s -> %s): %s', self.header.src_id, self.header.dst_id, addr)
+                yield addr
 
     def _is_header_valid(self) -> bool:
         h = self.header
@@ -122,43 +86,3 @@ class PktIn:
             return False
 
         return True
-
-    def _get_header(self):
-        header_cipher = self.outter_pkt[0:HEADER_LENGTH]
-        header_plain = self.vpn.group_cipher.decrypt(header_cipher)
-        self.header.from_network(header_plain)
-        logger.debug(self.header)
-
-    def _is_icv_valid(self) -> bool:
-        icv = self._get_icv()
-        if icv != self.outter_pkt[HEADER_LENGTH: HEADER_LENGTH+ICV_LENGTH]:
-            logger.debug('icv not match: (%s -> %s)', self.header.src_id, self.header.dst_id)
-            return False
-
-        return True
-
-    def _store_peer_addr(self):
-        logger.debug('%s: %s', self.header.src_id, self.addr)
-        self.peers.pool[self.header.src_id].add_addr(self.addr)
-
-    def _get_body(self):
-        body = self._decrypt_body()
-
-        if not self.vpn.do_nat:
-            self.body = body
-            return
-
-        ip = IPPacket().from_network(body)
-        logger.debug(ip)
-
-        h = self.header
-        if h.dst_inside:
-            new_ip = self.vpn.network + h.dst_id
-            ip.dnat(new_ip)
-
-        if h.src_inside:
-            new_ip = self.vpn.network + h.src_id
-            ip.snat(new_ip)
-
-        logger.debug(ip)
-        self.body = ip.to_network()
