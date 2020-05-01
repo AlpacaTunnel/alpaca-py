@@ -6,12 +6,13 @@ from typing import Tuple, List, Dict
 import logging
 import ctypes
 import time
+from multiprocessing import Value
 from multiprocessing.sharedctypes import Array
 
-from .common import truncate_key, ip_ntop, ip_pton, id_pton
+from .common import truncate_key, id_pton
 
 MAX_ID = 65535
-# Each peer stores 4 addresses, increase if need more forwarders. It seems path_index in header is not nessary?
+# Each peer stores 4 addresses, increase if need more forwarders.
 MAX_ADDR = 4
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class PeerAddr(ctypes.Structure):
     _fields_ = [
         ('static', ctypes.c_bool),
         ('version', ctypes.c_int8),
-        ('ip', ctypes.c_uint32),
+        ('ip', ctypes.c_wchar * 20),
         ('port', ctypes.c_uint16),
         ('last_active', ctypes.c_uint64),
     ]
@@ -36,7 +37,19 @@ class PeerAddr(ctypes.Structure):
         return (self.ip << 16) + self.port
 
     def __repr__(self):
-        return f"{ip_ntop(self.ip)}:{self.port} ({self.static}-{self.last_active})"
+        mark = 'Static' if self.static else 'Dynamic'
+        return f"{self.ip}:{self.port} ({mark}-{self.last_active})"
+
+    def copy(self, other: 'PeerAddr'):
+        self.static = other.static
+        self.version = other.version
+        self.ip = other.ip
+        self.port = other.port
+        self.last_active = other.last_active
+
+    def clear_inactive_dynamic(self):
+        if self.port and not self.static and (int(time.time()) - self.last_active) > 60:
+            self.port = 0
 
 
 class PktFilter:
@@ -132,13 +145,25 @@ class Peer:
     def __init__(self,
                  id: int = None,
                  psk: bytes = None,
-                 addr_array: List[PeerAddr] = None,
+                 shared_array: List[PeerAddr] = None,
     ):
         self.id = id
         self.psk = psk
-        self.addr_array: List[PeerAddr] = addr_array
-        self._offset = self.id * MAX_ADDR  # offset to the shared addr_array
         self.pkt_filter: PktFilter = None
+
+        # How to sync address from worker_recv to worker_send?
+        # Use multiprocessing.sharedctypes.Array is faster than multiprocessing.Manager, but still slow.
+        # It turns out multiprocessing.Value is fast, so use it as a signal.
+        self.shared_array: List[PeerAddr] = shared_array
+        self._offset = self.id * MAX_ADDR  # offset to the shared shared_array
+        self.addr_updated = Value('i', 1)  # use an integer to indicate bool, shared by multiprocessing
+
+        # worker_recv._addr_list -> shared_array -> worker_send._addr_list
+
+        # In each subprocess, store the addresses in a local list.
+        self._addr_list: List[PeerAddr] = [PeerAddr(port=0) for _ in range(MAX_ADDR)]  # not shared
+        self._last_synced = 0  # timestamp, not shared, used by worker_recv
+        self._last_cleared = 0  # timestamp, not shared, used by worker_send
 
     def init_pkt_filter(self):
         """
@@ -147,41 +172,104 @@ class Peer:
         if self.pkt_filter is None:
             self.pkt_filter = PktFilter()
 
-    def add_addr(self, addr: PeerAddr):
-        if addr.port == 0:
-            logger.error('Got wrong address with port 0.')
+    def _clear_inactive_addr(self):
+        """
+        Only clear the addr in the calling worker process.
+        """
+        for addr in self._addr_list:
+            addr.clear_inactive_dynamic()
+
+    def _update_timestamp_if_stored(self, new_addr: PeerAddr) -> bool:
+        """
+        update last_active timestamp if already stored
+        """
+        for addr in self._addr_list:
+            if addr == new_addr:
+                addr.last_active = int(time.time())
+                return True
+        return False
+
+    def _add_to_local_list(self, new_addr: PeerAddr) -> bool:
+        """
+        store in first empty addr
+        """
+        for addr in self._addr_list:
+            if addr.port == 0:
+                addr.copy(new_addr)
+                addr.last_active = int(time.time())
+                return True
+        return False
+
+    def add_addr(self, new_addr: PeerAddr):
+        """
+        This method is called in worker_recv (and by main on vpn start).
+        """
+        added, stored = False, False
+
+        stored = self._update_timestamp_if_stored(new_addr)
+
+        if not stored:
+            self._clear_inactive_addr()
+            added = self._add_to_local_list(new_addr)
+
+        if added:
+            self._sync_to_shared_array()
+            logger.debug('added new_addr in worker_recv')
+
+        # even if not added, still sync periodically, because addr timestamp is updated
+        if not added and (int(time.time()) - self._last_synced) > 10:
+            self._clear_inactive_addr()
+            self._sync_to_shared_array()
+            logger.debug('sync to shared_array in worker_recv by period')
+
+    def _sync_to_shared_array(self):
+        self.shared_array[self._offset: self._offset + MAX_ADDR] = self._addr_list[:]
+        self.addr_updated.value = 1
+        self._last_synced = int(time.time())
+        logger.debug(self._addr_list)
+
+    def _sync_from_shared_array(self):
+        if not self.addr_updated.value:
             return
+        self._addr_list[:] = self.shared_array[self._offset: self._offset + MAX_ADDR]
+        self.addr_updated.value = 0
+        logger.debug('updated in worker_send')
+        logger.debug(self._addr_list)
+        self._update_cache()
 
-        # update last_active timestamp if already stored
-        for index in range(self._offset, self._offset + MAX_ADDR):
-            if self.addr_array[index] == addr:
-                self.addr_array[index].last_active = int(time.time())
-                return
+    def _update_cache(self):
+        # all static and active dynamic, after _clear_inactive_addr()
+        # TODO: change list to tuple, to prevent change by caller function.
+        valid_list = list(filter(lambda addr: addr.port, self._addr_list))
 
-        # store in first empty pointer
-        for index in range(self._offset, self._offset + MAX_ADDR):
-            if self.addr_array[index].port == 0:
-                self.addr_array[index] = addr
-                self.addr_array[index].last_active = int(time.time())
-                return
+        self.addr_list_all_static_dynamic = valid_list
+        self.addr_list_all_static = list(filter(lambda addr: addr.static, valid_list))
+        self.addr_list_all_dynamic = list(filter(lambda addr: not addr.static, valid_list))
+        self.addr_list_all_active = list(filter(lambda addr: (int(time.time()) - addr.last_active) < 60, valid_list))
+
+    def _clear_periodically(self):
+        if (int(time.time()) - self._last_cleared) < 10:
+            return
+        # clear inactive dynamic addresses
+        # Don't do this in add_addr, because add_addr is not called if no pkt in.
+        self._clear_inactive_addr()
+        self._update_cache()
+        self._last_cleared = int(time.time())
+        logger.debug('cleared in worker_send by period')
 
     def get_addrs(self, static=False, inactive_downward_static=False) -> List[PeerAddr]:
         """
+        This method is called in worker_send.
         -> If static, only return static addrs (both active/inactive).
         -> If inactive_downward_static, send to active dynamic + all static.
         -> If there are active static+dynamic, return them.
         -> Return inactive static. (dynamic is always active.)
         """
-        my_array = self.addr_array[self._offset: self._offset + MAX_ADDR]
-        if static:
-            return list(filter(lambda addr: addr.port and addr.static, my_array))
+        self._sync_from_shared_array()
+        self._clear_periodically()
 
-        # clear inactive dynamic addresses
-        # Don't do this in add_addr, because add_addr is not called if no pkt in.
-        for index in range(self._offset, self._offset + MAX_ADDR):
-            addr = self.addr_array[index]
-            if addr.port and not addr.static and (int(time.time()) - addr.last_active) > 60:
-                addr.port = 0
+        if static:
+            return self.addr_list_all_static
 
         # Consider the topology with a server, a client, a forwarder:
         #
@@ -197,15 +285,14 @@ class Peer:
 
         # active dynamic + all static
         if inactive_downward_static:
-            return list(filter(lambda addr: addr.port, my_array))
+            return self.addr_list_all_static_dynamic
 
         # if static addr is not active, don't send to it, in case upward/downward path not the same.
-        active = list(filter(lambda addr: addr.port and (int(time.time()) - addr.last_active) < 60, my_array))
-        if active:
-            return active
+        if self.addr_list_all_active:
+            return self.addr_list_all_active
 
         # send to inactive static addr, in case no dynamic addr found.
-        return list(filter(lambda addr: addr.port, my_array))
+        return self.addr_list_all_static_dynamic
 
     def __repr__(self):
         return f'{self.id} {self.psk.hex()} {list(self.get_addrs())}'
@@ -217,7 +304,7 @@ class PeerPool:
         self.pool: Dict[int, Peer] = dict()
         # use shared Array to sync address between multiprocessing.Process
         # it's much faster than multiprocessing.Manager().dict()
-        self.addr_array = Array(PeerAddr, MAX_ID * MAX_ADDR)
+        self.shared_array = Array(PeerAddr, MAX_ID * MAX_ADDR)
 
     def __repr__(self):
         result = '\n'
@@ -247,13 +334,13 @@ class PeerPool:
 
         id = id_pton(id_str)
 
-        self.pool[id] = Peer(id, truncate_key(psk), self.addr_array)
+        self.pool[id] = Peer(id, truncate_key(psk), self.shared_array)
 
         if ip and port:
             addr = PeerAddr(
                 static=True,
                 version=4,
-                ip=ip_pton(ip),
+                ip=ip,
                 port=int(port),
             )
             self.pool[id].add_addr(addr)

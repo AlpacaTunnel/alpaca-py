@@ -11,7 +11,6 @@ from multiprocessing import Process as Worker
 
 from alpaca.config import Config
 from alpaca.peer import PeerPool, PeerAddr
-from alpaca.common import ip_pton, ip_ntop
 from alpaca.tunnel import Tunnel
 from alpaca.system import System, install_signal_restore
 from alpaca.vpn import VPN
@@ -40,7 +39,7 @@ def worker_send(sock, tun, vpn):
             if not pkt.valid:
                 continue
             for addr in pkt.dst_addrs:
-                sock.sendto(pkt.outter_pkt, (ip_ntop(addr.ip), addr.port))
+                sock.sendto(pkt.outter_pkt, (addr.ip, addr.port))
 
         except Exception as exc:
             logger.debug(traceback.format_exc())
@@ -56,7 +55,7 @@ def worker_recv(sock, tun, vpn):
             addr = PeerAddr(
                 static=False,
                 version=4,
-                ip=ip_pton(ip_port[0]),
+                ip=ip_port[0],
                 port=int(ip_port[1]),
             )
             pkt = PktIn(vpn, packet, addr)
@@ -68,7 +67,7 @@ def worker_recv(sock, tun, vpn):
 
             elif pkt.action == pkt.ACTION_FORWARD:
                 for addr in pkt.dst_addrs:
-                    sock.sendto(pkt.new_outter_pkt, (ip_ntop(addr.ip), addr.port))
+                    sock.sendto(pkt.new_outter_pkt, (addr.ip, addr.port))
 
         except Exception as exc:
             logger.debug(traceback.format_exc())
