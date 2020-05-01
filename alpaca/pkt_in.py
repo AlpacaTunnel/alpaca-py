@@ -77,16 +77,14 @@ class PktIn:
 
         self.new_outter_pkt = b''.join([header_cipher, icv, body_cipher])
 
-        self._fill_dst_addrs()
+        self.dst_addrs = self._get_dst_addrs()
 
-    def _fill_dst_addrs(self):
-        self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
-        try:
-            # split horizon
-            self.dst_addrs.remove(self.addr)
-        except ValueError:
-            pass
-        logger.debug('(%s -> %s): %s', self.header.src_id, self.header.dst_id, self.dst_addrs)
+    def _get_dst_addrs(self):
+        dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
+        for addr in dst_addrs:
+            if addr.ip != self.addr.ip:  # split horizon
+                logger.debug('(%s -> %s): %s', self.header.src_id, self.header.dst_id, addr)
+                yield addr
 
     def _decrypt_body(self) -> bytes:
         aes_block_length = ((self.header.length + 15) // 16) * 16

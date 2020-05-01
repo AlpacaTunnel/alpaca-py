@@ -239,13 +239,12 @@ class Peer:
 
     def _update_cache(self):
         # all static and active dynamic, after _clear_inactive_addr()
-        # TODO: change list to tuple, to prevent change by caller function.
-        valid_list = list(filter(lambda addr: addr.port, self._addr_list))
+        valid_list = tuple(filter(lambda addr: addr.port, self._addr_list))
 
         self.addr_list_all_static_dynamic = valid_list
-        self.addr_list_all_static = list(filter(lambda addr: addr.static, valid_list))
-        self.addr_list_all_dynamic = list(filter(lambda addr: not addr.static, valid_list))
-        self.addr_list_all_active = list(filter(lambda addr: (int(time.time()) - addr.last_active) < 60, valid_list))
+        self.addr_list_all_static = tuple(filter(lambda addr: addr.static, valid_list))
+        self.addr_list_all_dynamic = tuple(filter(lambda addr: not addr.static, valid_list))
+        self.addr_list_all_active = tuple(filter(lambda addr: (int(time.time()) - addr.last_active) < 60, valid_list))
 
     def _clear_periodically(self):
         if (int(time.time()) - self._last_cleared) < 10:
