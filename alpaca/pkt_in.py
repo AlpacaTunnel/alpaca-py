@@ -3,6 +3,7 @@ Receive packet from socket, decrypt and write to tunif.
 """
 from typing import Iterable
 import logging
+from Crypto.Cipher import AES
 
 from .vpn import VPN
 from .peer import PeerAddr
@@ -32,7 +33,8 @@ class PktIn:
         self._process()
 
     def _process(self):
-        self.header.from_network(self.outter_pkt[0: HEADER_LENGTH])
+        header_plain = self.vpn.group_cipher.decrypt(self.outter_pkt[0: HEADER_LENGTH])
+        self.header.from_network(header_plain)
         logger.debug(self.header)
 
         if not self._is_header_valid():
@@ -48,11 +50,18 @@ class PktIn:
 
         if self.header.dst_id == self.vpn.id:
             self.action = self.ACTION_WRITE
-            self.body = self.outter_pkt[HEADER_LENGTH: HEADER_LENGTH + self.header.length]
+            self.body = self._decrypt_body()
         else:
             self.action = self.ACTION_FORWARD
             self.new_outter_pkt = self.outter_pkt
             self.dst_addrs = self._get_dst_addrs()
+
+    def _decrypt_body(self) -> bytes:
+        bigger_id = max(self.header.src_id, self.header.dst_id)
+        psk = self.vpn.peers.pool[bigger_id].psk
+        aes_block_length = ((self.header.length + 15) // 16) * 16
+        cipher = AES.new(psk, AES.MODE_CBC, self.header.to_network())
+        return cipher.decrypt(self.outter_pkt[HEADER_LENGTH: HEADER_LENGTH + aes_block_length])
 
     def _get_dst_addrs(self):
         dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)

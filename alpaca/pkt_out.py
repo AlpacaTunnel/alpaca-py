@@ -5,6 +5,7 @@ from typing import List
 import logging
 import os
 import random
+from Crypto.Cipher import AES
 
 from .vpn import VPN
 from .peer import PeerAddr
@@ -58,13 +59,25 @@ class PktOut:
 
         logger.debug(h)
 
+    def _encrypt_body(self) -> bytes:
+        bigger_id = max(self.header.src_id, self.header.dst_id)
+        psk = self.vpn.peers.pool[bigger_id].psk
+        aes_block_length = ((self.header.length + 15) // 16) * 16
+        padding = os.urandom(aes_block_length - self.header.length)
+
+        cipher = AES.new(psk, AES.MODE_CBC, self.header.to_network())
+        return cipher.encrypt(self.body + padding)
+
     def _fill_outter_pkt(self):
         if self.header.length > 500:
             padding = b''
         else:
             padding = os.urandom(random.randint(250, 800))
 
-        self.outter_pkt = b''.join([self.header.to_network(), self.body, padding])
+        header_cipher = self.vpn.group_cipher.encrypt(self.header.to_network())
+        body_cipher = self._encrypt_body()
+
+        self.outter_pkt = b''.join([header_cipher, body_cipher, padding])
 
     def _fill_dst_addrs(self):
         self.dst_addrs = self.vpn.get_dst_addrs(self.header.src_id, self.header.dst_id)
