@@ -4,7 +4,7 @@ import logging
 import signal
 import socket
 
-from .common import exec_cmd, ip_ntop
+from .common import exec_cmd
 from .config import Config
 from .peer import PeerPool
 from .vpn import VPN
@@ -43,8 +43,7 @@ class System:
 
         for peer in self.peers.pool.values():
             for addr in peer.get_addrs(static=True):
-                ip = ip_ntop(addr.ip)
-                cmds.append(f'ip route add {ip} via {self.default_route} table default')
+                cmds.append(f'ip route add {addr.ip} via {self.default_route} table default')
 
         for ip in self.conf.local_routes:
             cmds.append(f'ip route add {ip} via {self.default_route} table default')
@@ -60,8 +59,7 @@ class System:
 
         for peer in self.peers.pool.values():
             for addr in peer.get_addrs(static=True):
-                ip = ip_ntop(addr.ip)
-                cmds.append(f'ip route delete {ip} via {self.default_route} table default')
+                cmds.append(f'ip route delete {addr.ip} via {self.default_route} table default')
 
         for ip in self.conf.local_routes:
             cmds.append(f'ip route delete {ip} via {self.default_route} table default')
