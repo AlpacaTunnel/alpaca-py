@@ -12,7 +12,7 @@ from .peer import PeerPool, PeerAddr
 
 
 class VPN:
-    MAGIC = 64  # must less than 256
+    MAGIC = 8964
     NETMASK = 0xffff0000
     IDMASK = 0x0000ffff
 
