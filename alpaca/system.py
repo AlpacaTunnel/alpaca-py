@@ -155,9 +155,12 @@ class System:
             self._cmd(cmd, strict=False)
 
     def _send_pkt_to_self(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('0.0.0.0', 0))
-        sock.sendto(b'0', ('0.0.0.0', self.conf.port))
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(('0.0.0.0', 0))
+            sock.sendto(b'0', ('0.0.0.0', self.conf.port))
+        except Exception:
+            pass
 
     def _exec_post_up_cmds(self):
         if not self.conf.post_up_cmds:
