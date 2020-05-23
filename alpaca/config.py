@@ -76,7 +76,7 @@ class Config:
         self.mode = conf['mode']
         self.group = conf['group']
         self.net = conf['net']
-        self.duplicate = conf.get('duplicate')
+        self.duplicate = int(conf.get('duplicate', 0))
         self.id = conf['id']
         self.gateway = conf.get('gateway')
         self.inactive_downward_static = conf.get('inactive_downward_static', False)

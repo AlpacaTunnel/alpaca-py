@@ -40,6 +40,8 @@ def worker_send(sock, tun, vpn):
                 continue
             for addr in pkt.dst_addrs:
                 sock.sendto(pkt.outter_pkt, (addr.ip, addr.port))
+                if vpn.config.duplicate:
+                    sock.sendto(pkt.outter_pkt, (addr.ip, addr.port))
 
         except Exception as exc:
             logger.debug(traceback.format_exc())
@@ -68,6 +70,8 @@ def worker_recv(sock, tun, vpn):
             elif pkt.action == pkt.ACTION_FORWARD:
                 for addr in pkt.dst_addrs:
                     sock.sendto(pkt.new_outter_pkt, (addr.ip, addr.port))
+                    if vpn.config.duplicate:
+                        sock.sendto(pkt.new_outter_pkt, (addr.ip, addr.port))
 
         except Exception as exc:
             logger.debug(traceback.format_exc())
