@@ -46,7 +46,7 @@ class Config:
         self.gateway : str  = None
         self.port    : str  = None
         self.mtu     : str  = None
-        self.virtual_net  : str  = None
+        self.duplicate    : int  = 0
         self.secret_file  : str  = None
         self.log_level    : str  = None
         self.inactive_downward_static: bool = False
@@ -76,7 +76,7 @@ class Config:
         self.mode = conf['mode']
         self.group = conf['group']
         self.net = conf['net']
-        self.virtual_net = conf.get('virtual_net')
+        self.duplicate = conf.get('duplicate')
         self.id = conf['id']
         self.gateway = conf.get('gateway')
         self.inactive_downward_static = conf.get('inactive_downward_static', False)

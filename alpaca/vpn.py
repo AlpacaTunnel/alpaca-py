@@ -1,7 +1,7 @@
 """
 VPN Context.
 """
-from typing import List
+from typing import Tuple
 import time
 from Crypto.Cipher import AES
 from multiprocessing import Value
@@ -16,7 +16,7 @@ class VPN:
     NETMASK = 0xffff0000
     IDMASK = 0x0000ffff
 
-    # TODO: if spawn multiple processes to run this class, should sync these two variables
+    # Note: if spawn multiple processes to run this class, should sync these two variables
     SEQUENCE = 0
     TIMESTAMP = 0
 
@@ -35,13 +35,6 @@ class VPN:
         else:
             self.gateway = 0
 
-        self.do_nat = False
-        self.virtual_net = 0
-        if config.virtual_net and config.virtual_net != config.net:
-            self.do_nat = True
-            ip_a, ip_b = config.virtual_net.split('.')
-            self.virtual_net = (int(ip_a) << 24) + (int(ip_b) << 16)
-
     def __repr__(self):
         return f'network: {self.config.net}, id: {self.id}'
 
@@ -53,7 +46,7 @@ class VPN:
             self.TIMESTAMP = now
             self.SEQUENCE = 0
 
-    def get_dst_addrs(self, src_id: int, dst_id: int) -> List[PeerAddr]:
+    def get_dst_addrs(self, src_id: int, dst_id: int) -> Tuple[PeerAddr]:
         # 1) From server to client, don't send to forwarder (configured on current host).
         #    If client has static address, will send to both static and dynamical.
         if src_id < dst_id:

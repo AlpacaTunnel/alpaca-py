@@ -239,13 +239,13 @@ class Peer:
 
     def _update_cache(self):
         # all static and active dynamic, after _clear_inactive_addr()
-        # TODO: change list to tuple, to prevent change by caller function.
-        valid_list = list(filter(lambda addr: addr.port, self._addr_list))
+        # Note: use tuple to prevent change by caller function.
+        valid_addrs = tuple(filter(lambda addr: addr.port, self._addr_list))
 
-        self.addr_list_all_static_dynamic = valid_list
-        self.addr_list_all_static = list(filter(lambda addr: addr.static, valid_list))
-        self.addr_list_all_dynamic = list(filter(lambda addr: not addr.static, valid_list))
-        self.addr_list_all_active = list(filter(lambda addr: (int(time.time()) - addr.last_active) < 60, valid_list))
+        self.addrs_all_static_dynamic = valid_addrs
+        self.addrs_all_static = tuple(filter(lambda addr: addr.static, valid_addrs))
+        self.addrs_all_dynamic = tuple(filter(lambda addr: not addr.static, valid_addrs))
+        self.addrs_all_active = tuple(filter(lambda addr: (int(time.time()) - addr.last_active) < 60, valid_addrs))
 
     def _clear_periodically(self):
         if (int(time.time()) - self._last_cleared) < 10:
@@ -257,7 +257,7 @@ class Peer:
         self._last_cleared = int(time.time())
         logger.debug('cleared in worker_send by period')
 
-    def get_addrs(self, static=False, inactive_downward_static=False) -> List[PeerAddr]:
+    def get_addrs(self, static=False, inactive_downward_static=False) -> Tuple[PeerAddr]:
         """
         This method is called in worker_send.
         -> If static, only return static addrs (both active/inactive).
@@ -269,7 +269,7 @@ class Peer:
         self._clear_periodically()
 
         if static:
-            return self.addr_list_all_static
+            return self.addrs_all_static
 
         # Consider the topology with a server, a client, a forwarder:
         #
@@ -285,14 +285,14 @@ class Peer:
 
         # active dynamic + all static
         if inactive_downward_static:
-            return self.addr_list_all_static_dynamic
+            return self.addrs_all_static_dynamic
 
         # if static addr is not active, don't send to it, in case upward/downward path not the same.
-        if self.addr_list_all_active:
-            return self.addr_list_all_active
+        if self.addrs_all_active:
+            return self.addrs_all_active
 
         # send to inactive static addr, in case no dynamic addr found.
-        return self.addr_list_all_static_dynamic
+        return self.addrs_all_static_dynamic
 
     def __repr__(self):
         return f'{self.id} {self.psk.hex()} {list(self.get_addrs())}'
