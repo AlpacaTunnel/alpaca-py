@@ -43,7 +43,7 @@ class System:
 
         for peer in self.peers.pool.values():
             for addr in peer.get_addrs(static=True):
-                cmds.append(f'ip route add {addr.ip} via {self.default_route} table default')
+                cmds.append(f'ip route add {addr.ip} via {self.default_route} table default | true')
 
         for ip in self.conf.local_routes:
             cmds.append(f'ip route add {ip} via {self.default_route} table default')
